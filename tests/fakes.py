@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from openagent_wakeword.errors import AudioInputError
 
 import numpy as np
 
@@ -10,13 +11,19 @@ class FakeAudioInput:
         self.fail_start = fail_start
         self.fail_stop = fail_stop
         self.started = False
+        self.started_count = 0
         self.stopped_count = 0
         self.callback: Callable[[np.ndarray], None] | None = None
+        self.error_callback: Callable[[AudioInputError], None] | None = None
+
+    def set_error_callback(self, callback) -> None:
+        self.error_callback = callback
 
     def start(self, on_frame: Callable[[np.ndarray], None]) -> None:
         if self.fail_start:
             raise RuntimeError("fake microphone unavailable")
         self.started = True
+        self.started_count += 1
         self.callback = on_frame
 
     def stop(self) -> None:
@@ -30,6 +37,10 @@ class FakeAudioInput:
         if self.callback is None:
             raise RuntimeError("fake audio not started")
         self.callback(frame if frame is not None else np.zeros(1280, dtype=np.int16))
+
+    def fail_runtime(self, message: str = "fake stream failure") -> None:
+        if self.error_callback is not None:
+            self.error_callback(AudioInputError(message))
 
 
 class FakeEngine:

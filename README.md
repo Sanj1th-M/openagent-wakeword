@@ -4,8 +4,9 @@
 Windows desktop voice assistant. It listens locally for the configured wake
 phrase while the assistant is idle and emits a `WAKE_DETECTED` event.
 
-This prototype does not implement Pipecat, Deepgram, TTS, UFO² integration, a
-GUI, automatic startup, or a Windows service.
+This component does not implement Pipecat, Deepgram, TTS, UFO² integration, a
+GUI, or a Windows service. Optional current-user sign-in startup is available
+through an explicit Task Scheduler management command.
 
 ## Supported Phrase
 
@@ -43,6 +44,13 @@ Create and activate a virtual environment:
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e .[dev]
+```
+
+After updating an existing checkout, refresh its virtual environment so newly
+declared commands are installed:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 ```
 
 Fetch the development model assets explicitly:
@@ -93,6 +101,59 @@ The manual check prints a bounded local diagnostic summary after each run. It
 includes frame counts, prediction counts, maximum score, frame length counts,
 callback status events, prediction latency, RMS/peak level summaries, clipping
 frames, and near-silence frames. It does not save or print raw audio samples.
+
+## Persistent Windows listener
+
+Run the listener in the foreground with the configured local model directory:
+
+```powershell
+openagent-wakeword-listener --models .models\openwakeword\v0.5.1
+```
+
+The listener stays active until Ctrl+C or process termination. It loads only
+local model assets and does not save, upload, or log microphone audio. Audio
+startup or stream-status failures are retried with delays of 1, 2, 4, 8, 16,
+then 30 seconds, capped at 30 seconds. Retries continue until audio recovers or
+the process is stopped. Model, inference, and microphone cleanup failures are
+terminal. Bounded operational logs are written under
+`%LOCALAPPDATA%\OpenAgent\WakeWord\logs\listener.log`.
+
+Task Scheduler startup is opt-in and scoped to the current user's sign-in. Run
+these commands from the installed project environment:
+
+```powershell
+openagent-wakeword-startup install --python .venv\Scripts\python.exe --models .models\openwakeword\v0.5.1
+openagent-wakeword-startup status
+openagent-wakeword-startup disable
+openagent-wakeword-startup uninstall
+```
+
+`install` validates the interpreter and model assets, then creates or updates
+the application-owned task `OpenAgentWakeWordListener` only at
+`\OpenAgent\WakeWord\`. Ownership requires that dedicated task location, the
+exact application description marker, and a single action invoking
+`openagent_wakeword.runner`. An existing task that does not meet all three
+checks is left unchanged and the command fails clearly. `status` shows whether
+the owned task is enabled and its executable, arguments, working directory,
+and last result. It also reports battery restrictions; for battery operation,
+both should be false. Re-running `install` updates the owned task to allow
+starts on battery and to keep running when AC power is disconnected. `disable`
+preserves the owned task; `uninstall` removes only the owned task and leaves its task
+folder in place. Disabling or uninstalling a missing task reports a clear
+failure. These operations do not download models, store credentials, or
+require administrator privileges by design. To verify sign-in behavior, inspect
+`status` and sign out/in while the configured environment and microphone are
+available. Do not install the task from elevated PowerShell if you intend it to
+run as your regular account.
+
+The listener uses a named Windows global mutex keyed by the current user's SID.
+It prevents duplicate listener instances for that account and Windows releases
+the mutex when the owning process exits, including after abnormal termination.
+Users who cannot run `whoami.exe` or create named mutexes cannot use the runner.
+The guard does not coordinate copies running under different Windows accounts.
+The Task Scheduler integration and real microphone recovery should be checked
+on the target Windows installation; unit tests do not establish hardware
+reliability.
 
 ## Troubleshooting
 

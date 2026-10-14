@@ -23,6 +23,8 @@ dev = [
 
 [project.scripts]
 openagent-wakeword-models = "openagent_wakeword.model_assets:main"
+openagent-wakeword-listener = "openagent_wakeword.runner:main"
+openagent-wakeword-startup = "openagent_wakeword.startup:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

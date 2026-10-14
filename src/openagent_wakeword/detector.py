@@ -7,7 +7,7 @@ from collections.abc import Callable
 
 import numpy as np
 
-from openagent_wakeword.audio import AudioInput, SoundDeviceAudioInput
+from openagent_wakeword.audio import AudioErrorCallback, AudioInput, SoundDeviceAudioInput
 from openagent_wakeword.config import WakeWordConfig
 from openagent_wakeword.diagnostics import WakeWordDiagnostics
 from openagent_wakeword.engines import WakeWordEngine
@@ -45,9 +45,11 @@ class WakeWordDetector:
         self._clock = clock
         self._wall_clock = wall_clock
         self._callbacks: list[WakeWordCallback] = []
+        self._audio_error_callbacks: list[AudioErrorCallback] = []
         self._lock = threading.RLock()
         self._running = False
         self._paused = False
+        self.audio_cleanup_failed = False
         self._last_detection_at: float | None = None
         self.last_error: Exception | None = None
 
@@ -70,6 +72,36 @@ class WakeWordDetector:
     def remove_callback(self, callback: WakeWordCallback) -> None:
         with self._lock:
             self._callbacks.remove(callback)
+
+    def add_audio_error_callback(self, callback: AudioErrorCallback) -> None:
+        """Register an optional observer for recoverable audio backend failures."""
+        if not callable(callback):
+            raise TypeError("callback must be callable")
+        with self._lock:
+            self._audio_error_callbacks.append(callback)
+            setter = getattr(self._audio, "set_error_callback", None)
+            if setter is not None:
+                setter(self._handle_audio_error)
+
+    def remove_audio_error_callback(self, callback: AudioErrorCallback) -> None:
+        with self._lock:
+            self._audio_error_callbacks.remove(callback)
+            if not self._audio_error_callbacks:
+                setter = getattr(self._audio, "set_error_callback", None)
+                if setter is not None:
+                    setter(None)
+
+    def _handle_audio_error(self, error: AudioInputError) -> None:
+        with self._lock:
+            if not self._running or self._paused:
+                return
+            self.last_error = error
+            callbacks = list(self._audio_error_callbacks)
+        for callback in callbacks:
+            try:
+                callback(error)
+            except Exception:
+                logger.exception("audio error callback failed")
 
     def start(self) -> None:
         with self._lock:
@@ -182,9 +214,11 @@ class WakeWordDetector:
                 logger.exception("wake-word callback failed")
 
     def _stop_audio(self) -> None:
+        self.audio_cleanup_failed = False
         try:
             self._audio.stop()
         except Exception as exc:
+            self.audio_cleanup_failed = True
             self.last_error = exc
             logger.exception("failed to stop microphone input cleanly")
 
