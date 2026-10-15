@@ -11,7 +11,7 @@ class WakeWordConfig:
     phrase: str = "Hey Jarvis"
     model_id: str = "hey_jarvis"
     prediction_key: str = "hey_jarvis"
-    threshold: float = 0.5
+    threshold: float = 0.4
     cooldown_seconds: float = 2.0
     sample_rate: int = 16000
     frame_samples: int = 1280
